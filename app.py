@@ -106,7 +106,12 @@ if modal > 0:
 
 st.header("4. Simulasi Pertumbuhan Bunga Majemuk")
 compound_growth = st.slider("Estimasi pertumbuhan tahunan (%):", 5, 20, 10)
-div_yield_avg = analisis_df['Dividend_Yield'].mean() / 100
+
+if not analisis_df.empty and 'Dividend_Yield' in analisis_df.columns:
+    div_yield_avg = analisis_df['Dividend_Yield'].dropna().mean() / 100
+else:
+    div_yield_avg = 0.02  # fallback default 2% jika data tidak tersedia
+
 start_value = (portfolio['Lot'] * portfolio['Harga_Beli'] * 100).sum()
 
 def project_growth(initial, rate, years):
