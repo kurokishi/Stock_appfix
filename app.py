@@ -94,15 +94,18 @@ st.dataframe(analisis_df)
 st.header("3. Strategi Penambahan Saham")
 modal = st.number_input("Masukkan modal tambahan (Rp):", min_value=0, step=100000)
 if modal > 0:
-    undervalued = analisis_df[analisis_df['Komentar_AI'] == 'Undervalued']
-    if not undervalued.empty:
-        harga = undervalued['Harga_Terakhir'] * 100
-        porsi = modal * (1 / harga) / (1 / harga).sum()
-        undervalued['Alokasi_Rp'] = porsi
-        st.write("Rekomendasi alokasi modal:")
-        st.dataframe(undervalued[['Kode', 'Harga_Terakhir', 'Alokasi_Rp']])
+    if not analisis_df.empty and 'Komentar_AI' in analisis_df.columns:
+        undervalued = analisis_df[analisis_df['Komentar_AI'] == 'Undervalued']
+        if not undervalued.empty:
+            harga = undervalued['Harga_Terakhir'] * 100
+            porsi = modal * (1 / harga) / (1 / harga).sum()
+            undervalued['Alokasi_Rp'] = porsi
+            st.write("Rekomendasi alokasi modal:")
+            st.dataframe(undervalued[['Kode', 'Harga_Terakhir', 'Alokasi_Rp']])
+        else:
+            st.warning("Tidak ada saham yang undervalued saat ini.")
     else:
-        st.warning("Tidak ada saham yang undervalued saat ini.")
+        st.warning("Data analisis belum lengkap atau kolom 'Komentar_AI' tidak ditemukan.")
 
 st.header("4. Simulasi Pertumbuhan Bunga Majemuk")
 compound_growth = st.slider("Estimasi pertumbuhan tahunan (%):", 5, 20, 10)
