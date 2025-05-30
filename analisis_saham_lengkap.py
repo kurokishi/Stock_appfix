@@ -43,7 +43,9 @@ def ambil_data_saham(ticker, cache_dir="cache", ttl_jam=1):
     
     if cache_valid(path_hist):
         try:
-            return pd.read_csv(path_hist, index_col=0, parse_dates=True), {}
+            df = pd.read_csv(path_hist, index_col=0, parse_dates=True)
+            df.index = df.index.tz_localize(None)  # Pastikan tz-naive
+            return df, {}
         except:
             pass
     
@@ -51,6 +53,7 @@ def ambil_data_saham(ticker, cache_dir="cache", ttl_jam=1):
         saham = yf.Ticker(ticker)
         hist = saham.history(period="1y", interval="1d")
         if not hist.empty:
+            hist.index = hist.index.tz_localize(None)  # Pastikan tz-naive
             hist.to_csv(path_hist)
             return hist, {}
     except:
@@ -221,7 +224,9 @@ def portfolio_simulation(ticker):
                                       max_value=data.index[-1].date())
     
     if st.button("Hitung Kinerja"):
-        investment_date = pd.to_datetime(investment_date)
+        # Konversi ke datetime tanpa timezone
+        investment_date = pd.to_datetime(investment_date).tz_localize(None)
+        
         if investment_date < data.index[0] or investment_date > data.index[-1]:
             st.error("Tanggal investasi tidak valid")
             return
