@@ -207,6 +207,8 @@ def arima_prediksi_harga(ticker, pred_hari=30):  # Maksimal prediksi diubah menj
 # ===== MAIN APP =====
 def main():
     st.title("📊 Analisis Saham + AI Prediksi (Prophet & ARIMA)")
+    
+    # Input ticker harus didefinisikan di sini sebelum digunakan
     ticker = st.text_input("Masukkan kode saham (misal: UNVR.JK)", value="UNVR.JK")
     
     st.subheader("🔮 Prediksi Harga - Prophet")
@@ -215,9 +217,9 @@ def main():
         prediksi_harga_saham_prophet(ticker, periode)
     
     st.subheader("📈 Prediksi Harga - ARIMA")
-periode_arima = st.slider("Periode Prediksi ARIMA (hari):", 1, 30, 7)  # Diubah dari 7 menjadi 30
-if st.button("Jalankan Prediksi ARIMA"):
-    arima_prediksi_harga(ticker, pred_hari=periode_arima)
+    periode_arima = st.slider("Periode Prediksi ARIMA (hari):", 1, 30, 7)
+    if st.button("Jalankan Prediksi ARIMA"):
+        arima_prediksi_harga(ticker, pred_hari=periode_arima)  # Pastikan ticker dikirim sebagai parameter
     
 if __name__ == "__main__":
     main()
