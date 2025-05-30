@@ -86,7 +86,7 @@ def prediksi_harga_saham_prophet(ticker, periode_hari=30):
     st.dataframe(prediksi_tampil)
 
 # ===== Prediksi ARIMA (Pengganti LSTM) =====
-def arima_prediksi_harga(ticker, pred_hari=5):
+def arima_prediksi_harga(ticker, pred_hari=30):  # Maksimal prediksi diubah menjadi 30 hari
     st.info(f"⏳ Menyiapkan prediksi ARIMA untuk {ticker}...")
     data, _ = ambil_data_saham(ticker)
     if data.empty:
@@ -95,42 +95,114 @@ def arima_prediksi_harga(ticker, pred_hari=5):
     
     df = data[["Close"]]
     
-    # Normalisasi data
-    scaler = MinMaxScaler()
-    scaled_data = scaler.fit_transform(df)
+    # 1. Optimasi parameter ARIMA secara otomatis
+    st.write("🔍 Mencari parameter ARIMA terbaik...")
+    best_aic = float("inf")
+    best_order = None
     
-    # Model ARIMA
-    model = ARIMA(scaled_data, order=(5,1,0))  # Parameter sederhana
+    # Coba kombinasi parameter yang masuk akal
+    for p in range(0, 3):
+        for d in range(0, 2):
+            for q in range(0, 3):
+                try:
+                    model = ARIMA(df, order=(p,d,q))
+                    results = model.fit()
+                    if results.aic < best_aic:
+                        best_aic = results.aic
+                        best_order = (p,d,q)
+                except:
+                    continue
+    
+    if best_order is None:
+        st.error("Gagal menemukan model ARIMA yang cocok")
+        return
+    
+    st.success(f"✅ Model terbaik: ARIMA{best_order} dengan AIC: {best_aic:.2f}")
+    
+    # 2. Training model dengan parameter terbaik
+    model = ARIMA(df, order=best_order)
     model_fit = model.fit()
     
-    # Prediksi
-    forecast = model_fit.forecast(steps=pred_hari)
-    forecast = scaler.inverse_transform(forecast.reshape(-1, 1))
+    # 3. Prediksi dengan interval kepercayaan
+    forecast = model_fit.get_forecast(steps=pred_hari)
+    pred_mean = forecast.predicted_mean
+    conf_int = forecast.conf_int()
     
-    pred_df = pd.DataFrame({
-        "Tanggal": pd.date_range(start=df.index[-1] + timedelta(days=1), periods=pred_hari),
-        "Prediksi": forecast.flatten()
-    })
+    # 4. Persiapan data untuk visualisasi
+    pred_dates = pd.date_range(start=df.index[-1] + timedelta(days=1), periods=pred_hari)
     
-    # Visualisasi
+    # 5. Visualisasi yang lebih informatif
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index[-100:], y=df["Close"].values[-100:], name="Harga Historis"))
-    fig.add_trace(go.Scatter(x=pred_df["Tanggal"], y=pred_df["Prediksi"], name="Prediksi ARIMA"))
-    fig.update_layout(title=f"Prediksi Harga Saham {ticker} (ARIMA)", 
-                     xaxis_title="Tanggal", yaxis_title="Harga")
+    
+    # Plot data historis
+    fig.add_trace(go.Scatter(
+        x=df.index[-100:], 
+        y=df["Close"].values[-100:],
+        name="Harga Historis",
+        line=dict(color='blue')
+    ))
+    
+    # Plot prediksi
+    fig.add_trace(go.Scatter(
+        x=pred_dates,
+        y=pred_mean,
+        name="Prediksi",
+        line=dict(color='green', dash='dash')
+    ))
+    
+    # Plot interval kepercayaan
+    fig.add_trace(go.Scatter(
+        x=pred_dates.tolist() + pred_dates.tolist()[::-1],
+        y=conf_int.iloc[:, 0].tolist() + conf_int.iloc[:, 1].tolist()[::-1],
+        fill='toself',
+        fillcolor='rgba(0,100,80,0.2)',
+        line=dict(color='rgba(255,255,255,0)'),
+        name="Interval Kepercayaan 95%"
+    ))
+    
+    fig.update_layout(
+        title=f"Prediksi Harga Saham {ticker} (ARIMA{best_order})",
+        xaxis_title="Tanggal",
+        yaxis_title="Harga",
+        hovermode="x unified"
+    )
+    
     st.plotly_chart(fig, use_container_width=True)
     
-    st.write("### Tabel Prediksi")
-    st.dataframe(pred_df.assign(Prediksi=pred_df["Prediksi"].apply(format_rupiah)))
+    # 6. Tampilkan tabel prediksi
+    pred_df = pd.DataFrame({
+        "Tanggal": pred_dates,
+        "Prediksi": pred_mean,
+        "Bawah (95%)": conf_int.iloc[:, 0],
+        "Atas (95%)": conf_int.iloc[:, 1]
+    })
     
-    # Sinyal sederhana
-    perubahan = pred_df["Prediksi"].iloc[-1] - df["Close"].values[-1]
-    if perubahan > 0.5:
-        st.success("🟢 Sinyal: BELI (harga diprediksi naik)")
-    elif perubahan < -0.5:
-        st.error("🔴 Sinyal: JUAL (harga diprediksi turun)")
-    else:
-        st.info("⚪ Sinyal: TAHAN (tidak banyak berubah)")
+    st.write("### Detail Prediksi")
+    st.dataframe(pred_df.style.format({
+        "Prediksi": "{:.2f}",
+        "Bawah (95%)": "{:.2f}",
+        "Atas (95%)": "{:.2f}"
+    }))
+    
+    # 7. Analisis perubahan harga
+    perubahan = pred_mean.iloc[-1] - df["Close"].iloc[-1]
+    perubahan_persen = (perubahan / df["Close"].iloc[-1]) * 100
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(
+            "Prediksi Akhir",
+            f"Rp{pred_mean.iloc[-1]:,.2f}".replace(",", "."),
+            f"{perubahan_persen:+.2f}%"
+        )
+    
+    with col2:
+        if perubahan > 0.5:
+            st.success("🟢 Sinyal: BELI (harga diprediksi naik)")
+        elif perubahan < -0.5:
+            st.error("🔴 Sinyal: JUAL (harga diprediksi turun)")
+        else:
+            st.info("⚪ Sinyal: TAHAN (tidak banyak berubah)")
 
 # ===== MAIN APP =====
 def main():
@@ -143,9 +215,9 @@ def main():
         prediksi_harga_saham_prophet(ticker, periode)
     
     st.subheader("📈 Prediksi Harga - ARIMA")
-    periode_arima = st.slider("Periode Prediksi ARIMA (hari):", 1, 7, 3)
-    if st.button("Jalankan Prediksi ARIMA"):
-        arima_prediksi_harga(ticker, pred_hari=periode_arima)
-
+periode_arima = st.slider("Periode Prediksi ARIMA (hari):", 1, 30, 7)  # Diubah dari 7 menjadi 30
+if st.button("Jalankan Prediksi ARIMA"):
+    arima_prediksi_harga(ticker, pred_hari=periode_arima)
+    
 if __name__ == "__main__":
     main()
