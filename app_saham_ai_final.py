@@ -1,11 +1,13 @@
 import streamlit as st
+import os  # Tambahkan ini di bagian import
+import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import yfinance as yf
+import numpy as np
+import requests
 from datetime import datetime, timedelta
-from statsmodels.tsa.arima.model import ARIMA
 from sklearn.preprocessing import MinMaxScaler
-
+from statsmodels.tsa.arima.model import ARIMA
 # ===== Konfigurasi Awal =====
 st.set_page_config(layout="wide", page_title="Analisis Saham - Prophet & ARIMA")
 
@@ -28,7 +30,7 @@ except ImportError:
 def ambil_data_saham(ticker, cache_dir="cache", ttl_jam=1):
     if not YFINANCE_ENABLED:
         return pd.DataFrame(), {}
-    os.makedirs(cache_dir, exist_ok=True)
+    os.makedirs(cache_dir, exist_ok=True)  # Ini membutuhkan modul os
     path_hist = os.path.join(cache_dir, f"{ticker}_hist.csv")
     now = datetime.now()
     def cache_valid(path):
