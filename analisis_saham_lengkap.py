@@ -60,6 +60,29 @@ def ambil_data_saham(ticker, cache_dir="cache", ttl_jam=1):
         pass
     return pd.DataFrame(), {}
 
+#======Multiple input saham=====
+def process_multiple_tickers(tickers):
+    if len(tickers) == 1:
+        # Jika hanya 1 ticker, jalankan seperti biasa
+        ticker = tickers[0]
+        if app_mode == "Dashboard Utama":
+            show_dashboard(ticker)
+        elif app_mode == "Analisis Fundamental":
+            show_fundamental_analysis(ticker)
+        elif app_mode == "Analisis Teknikal":
+            show_technical_analysis(ticker)
+        elif app_mode == "Prediksi Harga":
+            show_price_prediction(ticker)
+        elif app_mode == "Simulasi Portofolio":
+            portfolio_simulation(ticker)
+    else:
+        # Jika multiple tickers
+        if app_mode == "Perbandingan Saham":
+            compare_stocks(tickers)
+        elif app_mode == "Dashboard Utama":
+            compare_stocks(tickers)  # Default tampilkan perbandingan
+        else:
+            st.warning("Fitur ini hanya tersedia untuk analisis satu saham")
 # ===== Format =====
 def format_rupiah(x):
     try:
@@ -282,14 +305,21 @@ def compare_stocks(tickers):
         df, _ = ambil_data_saham(ticker)
         if not df.empty:
             data[ticker] = df['Close']
+        else:
+            st.warning(f"Data untuk {ticker} tidak tersedia")
     
     if len(data) < 2:
-        st.error("Tidak cukup data untuk perbandingan")
+        st.error("Tidak cukup data saham yang valid untuk perbandingan")
         return
     
-    # Normalize prices for comparison
+    # Normalisasi harga untuk perbandingan
     comparison_df = pd.DataFrame(data)
     comparison_df = comparison_df.dropna()
+    
+    if len(comparison_df) == 0:
+        st.error("Tidak ada periode yang sama untuk dibandingkan")
+        return
+    
     comparison_df = comparison_df / comparison_df.iloc[0] * 100
     
     fig = go.Figure()
@@ -297,16 +327,40 @@ def compare_stocks(tickers):
         fig.add_trace(go.Scatter(
             x=comparison_df.index,
             y=comparison_df[ticker],
-            name=ticker
+            name=ticker,
+            mode='lines'
         ))
     
     fig.update_layout(
-        title="Perbandingan Kinerja Saham (Normalisasi)",
+        title="Perbandingan Kinerja Saham (Normalisasi 100 pada awal periode)",
         xaxis_title="Tanggal",
-        yaxis_title="Kinerja (%)"
+        yaxis_title="Kinerja (%)",
+        hovermode="x unified"
     )
+    
     st.plotly_chart(fig, use_container_width=True)
-
+    
+    # Tampilkan tabel performa
+    st.subheader("Performa Relatif")
+    start_date = comparison_df.index[0].strftime('%Y-%m-%d')
+    end_date = comparison_df.index[-1].strftime('%Y-%m-%d')
+    
+    performance = {
+        'Saham': [],
+        'Perubahan (%)': [],
+        'Volatilitas (Std Dev)': []
+    }
+    
+    for ticker in comparison_df.columns:
+        change_pct = (comparison_df[ticker].iloc[-1] - 100) / 100 * 100
+        volatility = comparison_df[ticker].pct_change().std() * np.sqrt(252) * 100  # Annualized
+        performance['Saham'].append(ticker)
+        performance['Perubahan (%)'].append(f"{change_pct:.2f}%")
+        performance['Volatilitas (Std Dev)'].append(f"{volatility:.2f}%")
+    
+    st.table(pd.DataFrame(performance))
+    
+    st.caption(f"Periode: {start_date} hingga {end_date}")
 # ===== Prediksi Prophet =====
 def prediksi_harga_saham_prophet(ticker, periode_hari=30):
     if not PROPHET_ENABLED:
@@ -453,84 +507,97 @@ def arima_prediksi_harga(ticker, pred_hari=30):
             st.error("🔴 Sinyal: JUAL (harga diprediksi turun)")
         else:
             st.info("⚪ Sinyal: TAHAN (tidak banyak berubah)")
+#====tambahan fungsi====
 
+def show_dashboard(ticker):
+    """Fungsi baru untuk tampilan dashboard individual"""
+    st.subheader("📈 Grafik Harga Saham")
+    data, _ = ambil_data_saham(ticker)
+    if not data.empty:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name='Harga Penutupan'))
+        fig.update_layout(title=f"Harga Saham {ticker}", xaxis_title="Tanggal", yaxis_title="Harga (Rp)")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Quick stats
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Harga Terakhir", format_rupiah(data['Close'].iloc[-1]))
+        with col2:
+            change = data['Close'].iloc[-1] - data['Close'].iloc[-2]
+            pct_change = (change / data['Close'].iloc[-2]) * 100
+            st.metric("Perubahan Hari Ini", format_rupiah(change), f"{pct_change:.2f}%")
+        with col3:
+            st.metric("Volume Hari Ini", f"{data['Volume'].iloc[-1]:,}".replace(",", "."))
+        
+        show_fundamental_analysis(ticker)
+        get_news_sentiment(ticker)
+    else:
+        st.warning("Data saham tidak tersedia")
+
+def show_technical_analysis(ticker):
+    """Fungsi baru untuk analisis teknikal individual"""
+    st.subheader("📊 Analisis Teknikal")
+    data, _ = ambil_data_saham(ticker)
+    if not data.empty:
+        data = add_technical_indicators(data)
+        plot_technical_indicators(data, ticker)
+    else:
+        st.warning("Data saham tidak tersedia")
+
+def show_price_prediction(ticker):
+    """Fungsi baru untuk prediksi harga individual"""
+    st.subheader("🔮 Prediksi Harga Saham")
+    
+    tab1, tab2 = st.tabs(["Prophet", "ARIMA"])
+    
+    with tab1:
+        periode = st.slider("Periode Prediksi Prophet (hari ke depan):", min_value=7, max_value=90, value=30)
+        if st.button("Jalankan Prediksi Prophet"):
+            prediksi_harga_saham_prophet(ticker, periode)
+    
+    with tab2:
+        periode_arima = st.slider("Periode Prediksi ARIMA (hari):", 1, 30, 7)
+        if st.button("Jalankan Prediksi ARIMA"):
+            arima_prediksi_harga(ticker, pred_hari=periode_arima)
 # ===== MAIN APP =====
 def main():
     st.title("📊 Analisis Saham Lengkap + AI Prediksi")
     
-    # Sidebar for navigation
+    # Sidebar untuk navigasi
     st.sidebar.title("Menu")
     app_mode = st.sidebar.radio("Pilih Analisis", 
                                ["Dashboard Utama", "Analisis Fundamental", 
                                 "Analisis Teknikal", "Prediksi Harga", 
                                 "Simulasi Portofolio", "Perbandingan Saham"])
     
-    # Input ticker
-    ticker = st.sidebar.text_input("Masukkan kode saham (misal: UNVR.JK)", value="UNVR.JK")
+    # [POIN 4] Input ticker multiple - GANTI bagian input ticker lama
+    tickers_input = st.sidebar.text_input(
+        "Masukkan kode saham (pisahkan dengan koma)", 
+        value="UNVR.JK, BBCA.JK, TLKM.JK"
+    )
+    tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
     
-    if app_mode == "Dashboard Utama":
-        st.subheader("📈 Grafik Harga Saham")
-        data, _ = ambil_data_saham(ticker)
-        if not data.empty:
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name='Harga Penutupan'))
-            fig.update_layout(title=f"Harga Saham {ticker}", xaxis_title="Tanggal", yaxis_title="Harga (Rp)")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Quick stats
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Harga Terakhir", format_rupiah(data['Close'].iloc[-1]))
-            with col2:
-                change = data['Close'].iloc[-1] - data['Close'].iloc[-2]
-                pct_change = (change / data['Close'].iloc[-2]) * 100
-                st.metric("Perubahan Hari Ini", format_rupiah(change), f"{pct_change:.2f}%")
-            with col3:
-                st.metric("Volume Hari Ini", f"{data['Volume'].iloc[-1]:,}".replace(",", "."))
-            
-            # Show fundamental summary
-            show_fundamental_analysis(ticker)
-            
-            # Show news sentiment
-            get_news_sentiment(ticker)
-        else:
-            st.warning("Data saham tidak tersedia")
+    if not tickers:
+        st.warning("Silakan masukkan minimal satu kode saham")
+        return
     
-    elif app_mode == "Analisis Fundamental":
-        show_fundamental_analysis(ticker)
-    
-    elif app_mode == "Analisis Teknikal":
-        st.subheader("📊 Analisis Teknikal")
-        data, _ = ambil_data_saham(ticker)
-        if not data.empty:
-            data = add_technical_indicators(data)
-            plot_technical_indicators(data, ticker)
-        else:
-            st.warning("Data saham tidak tersedia")
-    
-    elif app_mode == "Prediksi Harga":
-        st.subheader("🔮 Prediksi Harga Saham")
-        
-        tab1, tab2 = st.tabs(["Prophet", "ARIMA"])
-        
-        with tab1:
-            periode = st.slider("Periode Prediksi Prophet (hari ke depan):", min_value=7, max_value=90, value=30)
-            if st.button("Jalankan Prediksi Prophet"):
-                prediksi_harga_saham_prophet(ticker, periode)
-        
-        with tab2:
-            periode_arima = st.slider("Periode Prediksi ARIMA (hari):", 1, 30, 7)
-            if st.button("Jalankan Prediksi ARIMA"):
-                arima_prediksi_harga(ticker, pred_hari=periode_arima)
-    
-    elif app_mode == "Simulasi Portofolio":
-        portfolio_simulation(ticker)
-    
-    elif app_mode == "Perbandingan Saham":
-        st.subheader("🆚 Perbandingan Saham")
-        tickers_input = st.text_input("Masukkan kode saham (pisahkan dengan koma)", "UNVR.JK, BBCA.JK, TLKM.JK")
-        tickers = [t.strip() for t in tickers_input.split(",") if t.strip()]
+    # [POIN 5] Auto-fallback logic - TAMBAHKAN blok ini
+    if app_mode == "Perbandingan Saham":
         compare_stocks(tickers)
-
-if __name__ == "__main__":
-    main()
+    elif len(tickers) > 1:  # Jika user input multiple ticker di mode non-comparison
+        st.warning(f"Mode '{app_mode}' hanya tersedia untuk analisis satu saham")
+        st.info("Sedang menampilkan mode Perbandingan Saham sebagai gantinya")
+        compare_stocks(tickers)
+    else:  # Jika hanya 1 ticker
+        ticker = tickers[0]
+        if app_mode == "Dashboard Utama":
+            show_dashboard(ticker)
+        elif app_mode == "Analisis Fundamental":
+            show_fundamental_analysis(ticker)
+        elif app_mode == "Analisis Teknikal":
+            show_technical_analysis(ticker)
+        elif app_mode == "Prediksi Harga":
+            show_price_prediction(ticker)
+        elif app_mode == "Simulasi Portofolio":
+            portfolio_simulation(ticker)
