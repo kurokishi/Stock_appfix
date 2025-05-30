@@ -416,11 +416,9 @@ def arima_prediksi_harga(ticker, pred_hari=30):
                         best_order = (p,d,q)
                 except:
                     continue
-    
     if best_order is None:
         st.error("Gagal menemukan model ARIMA yang cocok")
-        return
-    
+        return   
     st.success(f"✅ Model terbaik: ARIMA{best_order} dengan AIC: {best_aic:.2f}")
     
     # 2. Training model dengan parameter terbaik
@@ -498,8 +496,7 @@ def arima_prediksi_harga(ticker, pred_hari=30):
             "Prediksi Akhir",
             f"Rp{pred_mean.iloc[-1]:,.2f}".replace(",", "."),
             f"{perubahan_persen:+.2f}%"
-        )
-    
+        )  
     with col2:
         if perubahan > 0.5:
             st.success("🟢 Sinyal: BELI (harga diprediksi naik)")
@@ -508,7 +505,6 @@ def arima_prediksi_harga(ticker, pred_hari=30):
         else:
             st.info("⚪ Sinyal: TAHAN (tidak banyak berubah)")
 #====tambahan fungsi====
-
 def show_dashboard(ticker):
     """Fungsi baru untuk tampilan dashboard individual"""
     st.subheader("📈 Grafik Harga Saham")
@@ -529,12 +525,10 @@ def show_dashboard(ticker):
             st.metric("Perubahan Hari Ini", format_rupiah(change), f"{pct_change:.2f}%")
         with col3:
             st.metric("Volume Hari Ini", f"{data['Volume'].iloc[-1]:,}".replace(",", "."))
-        
         show_fundamental_analysis(ticker)
         get_news_sentiment(ticker)
     else:
         st.warning("Data saham tidak tersedia")
-
 def show_technical_analysis(ticker):
     """Fungsi baru untuk analisis teknikal individual"""
     st.subheader("📊 Analisis Teknikal")
@@ -561,17 +555,25 @@ def show_price_prediction(ticker):
         if st.button("Jalankan Prediksi ARIMA"):
             arima_prediksi_harga(ticker, pred_hari=periode_arima)
 # ===== MAIN APP =====
+# ===== MAIN APP =====
 def main():
     st.title("📊 Analisis Saham Lengkap + AI Prediksi")
     
     # Sidebar untuk navigasi
     st.sidebar.title("Menu")
-    app_mode = st.sidebar.radio("Pilih Analisis", 
-                               ["Dashboard Utama", "Analisis Fundamental", 
-                                "Analisis Teknikal", "Prediksi Harga", 
-                                "Simulasi Portofolio", "Perbandingan Saham"])
+    app_mode = st.sidebar.radio(
+        "Pilih Analisis", 
+        [
+            "Dashboard Utama", 
+            "Analisis Fundamental", 
+            "Analisis Teknikal", 
+            "Prediksi Harga", 
+            "Simulasi Portofolio", 
+            "Perbandingan Saham"
+        ]
+    )
     
-    # [POIN 4] Input ticker multiple - GANTI bagian input ticker lama
+    # Input ticker multiple
     tickers_input = st.sidebar.text_input(
         "Masukkan kode saham (pisahkan dengan koma)", 
         value="UNVR.JK, BBCA.JK, TLKM.JK"
@@ -582,7 +584,7 @@ def main():
         st.warning("Silakan masukkan minimal satu kode saham")
         return
     
-    # [POIN 5] Auto-fallback logic - TAMBAHKAN blok ini
+    # Logika pemilihan mode
     if app_mode == "Perbandingan Saham":
         compare_stocks(tickers)
     elif len(tickers) > 1:  # Jika user input multiple ticker di mode non-comparison
@@ -601,3 +603,6 @@ def main():
             show_price_prediction(ticker)
         elif app_mode == "Simulasi Portofolio":
             portfolio_simulation(ticker)
+
+if __name__ == "__main__":
+    main()
