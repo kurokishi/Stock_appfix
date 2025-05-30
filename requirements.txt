@@ -4,6 +4,6 @@ numpy>=1.0.0
 plotly>=5.0.0
 yfinance>=0.1.70
 prophet>=1.0.0
-scikit-learn>=1.0.0
-tensorflow>=2.0.0
+scikit-learn>=1.0.0,<1.6.0
+tensorflow>=2.16.1,<=2.16.2
 requests>=2.0.0
