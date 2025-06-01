@@ -384,7 +384,7 @@ def prediksi_harga_saham_prophet(ticker, periode_hari=30):
     model.fit(train)
     
     # Buat dataframe untuk prediksi
-    future = model.make_future_dataframe(periods=len(test)  # Prediksi sepanjang data test
+    future = model.make_future_dataframe(periods=len(test))  # Prediksi sepanjang data test
     forecast = model.predict(future)
     
     # Evaluasi model
