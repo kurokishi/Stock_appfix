@@ -361,7 +361,7 @@ def compare_stocks(tickers):
     st.table(pd.DataFrame(performance))
     
     st.caption(f"Periode: {start_date} hingga {end_date}")
-# ===== Prediksi Prophet =====
+# ===== Prediksi Prophet dengan Evaluasi =====
 def prediksi_harga_saham_prophet(ticker, periode_hari=30):
     if not PROPHET_ENABLED:
         st.warning("Modul Prophet tidak tersedia")
@@ -370,26 +370,90 @@ def prediksi_harga_saham_prophet(ticker, periode_hari=30):
     if hist.empty:
         st.warning("Tidak ada data historis untuk prediksi.")
         return
-    df = hist[['Close']].reset_index()
-    df.rename(columns={"Date": "ds", "Close": "y"}, inplace=True)
-    df['ds'] = pd.to_datetime(df['ds']).dt.tz_localize(None)
+    
+    # Pisahkan data menjadi training dan testing
+    split_point = int(len(hist) * 0.8)  # 80% training, 20% testing
+    train = hist.iloc[:split_point][['Close']].reset_index()
+    test = hist.iloc[split_point:][['Close']].reset_index()
+    
+    train.rename(columns={"Date": "ds", "Close": "y"}, inplace=True)
+    train['ds'] = pd.to_datetime(train['ds']).dt.tz_localize(None)
+    
+    # Buat dan latih model
     model = Prophet(daily_seasonality=True)
-    model.fit(df)
+    model.fit(train)
+    
+    # Buat dataframe untuk prediksi
+    future = model.make_future_dataframe(periods=len(test)  # Prediksi sepanjang data test
+    forecast = model.predict(future)
+    
+    # Evaluasi model
+    pred_test = forecast.iloc[split_point:]['yhat'].values
+    actual_test = test['Close'].values
+    
+    # Hitung metrik evaluasi
+    mae = np.mean(np.abs(pred_test - actual_test))
+    mse = np.mean((pred_test - actual_test)**2)
+    rmse = np.sqrt(mse)
+    mape = np.mean(np.abs((actual_test - pred_test) / actual_test)) * 100
+    
+    # Tampilkan metrik evaluasi
+    st.subheader("📊 Evaluasi Prediksi Prophet")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("MAE", f"{mae:.2f}")
+    col2.metric("MSE", f"{mse:.2f}")
+    col3.metric("RMSE", f"{rmse:.2f}")
+    col4.metric("MAPE", f"{mape:.2f}%")
+    
+    # Plot evaluasi
+    fig_eval = go.Figure()
+    fig_eval.add_trace(go.Scatter(
+        x=test['Date'],
+        y=actual_test,
+        name='Harga Aktual',
+        line=dict(color='blue')
+    ))
+    fig_eval.add_trace(go.Scatter(
+        x=test['Date'],
+        y=pred_test,
+        name='Prediksi Prophet',
+        line=dict(color='red', dash='dash')
+    ))
+    fig_eval.update_layout(
+        title="Evaluasi Prediksi Prophet (Backtesting)",
+        xaxis_title="Tanggal",
+        yaxis_title="Harga"
+    )
+    st.plotly_chart(fig_eval, use_container_width=True)
+    
+    # Prediksi ke depan
+    st.subheader("🔮 Prediksi Masa Depan")
     future = model.make_future_dataframe(periods=periode_hari)
     forecast = model.predict(future)
+    
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df['ds'], y=df['y'], name='Harga Aktual'))
-    fig.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat'], name='Prediksi Harga'))
+    fig.add_trace(go.Scatter(x=train['ds'], y=train['y'], name='Data Training'))
+    fig.add_trace(go.Scatter(x=test['Date'], y=test['Close'], name='Data Testing'))
+    fig.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat'], name='Prediksi'))
+    fig.add_trace(go.Scatter(
+        x=forecast['ds'].tolist() + forecast['ds'].tolist()[::-1],
+        y=forecast['yhat_upper'].tolist() + forecast['yhat_lower'].tolist()[::-1],
+        fill='toself',
+        fillcolor='rgba(0,100,80,0.2)',
+        line=dict(color='rgba(255,255,255,0)'),
+        name="Interval Kepercayaan"
+    ))
     fig.update_layout(title=f"Prediksi Harga Saham {ticker} ({periode_hari} Hari ke Depan)",
-                      xaxis_title="Tanggal", yaxis_title="Harga")
+                     xaxis_title="Tanggal", yaxis_title="Harga")
     st.plotly_chart(fig, use_container_width=True)
+    
     st.write("### Tabel Prediksi")
     prediksi_tampil = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(periode_hari)
     prediksi_tampil.columns = ['Tanggal', 'Prediksi', 'Batas Bawah', 'Batas Atas']
     prediksi_tampil['Prediksi'] = prediksi_tampil['Prediksi'].apply(format_rupiah)
     st.dataframe(prediksi_tampil)
 
-# ===== Prediksi ARIMA =====
+# ===== Prediksi ARIMA dengan Evaluasi =====
 def arima_prediksi_harga(ticker, pred_hari=30):
     st.info(f"⏳ Menyiapkan prediksi ARIMA untuk {ticker}...")
     data, _ = ambil_data_saham(ticker)
@@ -399,60 +463,107 @@ def arima_prediksi_harga(ticker, pred_hari=30):
     
     df = data[["Close"]]
     
-    # 1. Optimasi parameter ARIMA secara otomatis
+    # Pisahkan data menjadi training dan testing
+    split_point = int(len(df) * 0.8)
+    train = df.iloc[:split_point]
+    test = df.iloc[split_point:]
+    
+    # 1. Optimasi parameter ARIMA pada data training
     st.write("🔍 Mencari parameter ARIMA terbaik...")
     best_aic = float("inf")
     best_order = None
     
-    # Coba kombinasi parameter yang masuk akal
     for p in range(0, 3):
         for d in range(0, 2):
             for q in range(0, 3):
                 try:
-                    model = ARIMA(df, order=(p,d,q))
+                    model = ARIMA(train, order=(p,d,q))
                     results = model.fit()
                     if results.aic < best_aic:
                         best_aic = results.aic
                         best_order = (p,d,q)
                 except:
                     continue
+    
     if best_order is None:
         st.error("Gagal menemukan model ARIMA yang cocok")
         return   
+    
     st.success(f"✅ Model terbaik: ARIMA{best_order} dengan AIC: {best_aic:.2f}")
     
-    # 2. Training model dengan parameter terbaik
+    # 2. Evaluasi model pada data testing
+    history = [x for x in train['Close']]
+    predictions = []
+    
+    for t in range(len(test)):
+        model = ARIMA(history, order=best_order)
+        model_fit = model.fit()
+        output = model_fit.forecast()
+        yhat = output[0]
+        predictions.append(yhat)
+        obs = test['Close'].iloc[t]
+        history.append(obs)
+    
+    # Hitung metrik evaluasi
+    mae = np.mean(np.abs(predictions - test['Close'].values))
+    mse = np.mean((predictions - test['Close'].values)**2)
+    rmse = np.sqrt(mse)
+    mape = np.mean(np.abs((test['Close'].values - predictions) / test['Close'].values)) * 100
+    
+    # Tampilkan metrik evaluasi
+    st.subheader("📊 Evaluasi Prediksi ARIMA")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("MAE", f"{mae:.2f}")
+    col2.metric("MSE", f"{mse:.2f}")
+    col3.metric("RMSE", f"{rmse:.2f}")
+    col4.metric("MAPE", f"{mape:.2f}%")
+    
+    # Plot evaluasi
+    fig_eval = go.Figure()
+    fig_eval.add_trace(go.Scatter(
+        x=test.index,
+        y=test['Close'],
+        name='Harga Aktual',
+        line=dict(color='blue')
+    ))
+    fig_eval.add_trace(go.Scatter(
+        x=test.index,
+        y=predictions,
+        name='Prediksi ARIMA',
+        line=dict(color='red', dash='dash')
+    ))
+    fig_eval.update_layout(
+        title="Evaluasi Prediksi ARIMA (Backtesting)",
+        xaxis_title="Tanggal",
+        yaxis_title="Harga"
+    )
+    st.plotly_chart(fig_eval, use_container_width=True)
+    
+    # 3. Training model dengan seluruh data untuk prediksi masa depan
     model = ARIMA(df, order=best_order)
     model_fit = model.fit()
     
-    # 3. Prediksi dengan interval kepercayaan
+    # Prediksi dengan interval kepercayaan
     forecast = model_fit.get_forecast(steps=pred_hari)
     pred_mean = forecast.predicted_mean
     conf_int = forecast.conf_int()
     
-    # 4. Persiapan data untuk visualisasi
+    # 4. Visualisasi prediksi masa depan
     pred_dates = pd.date_range(start=df.index[-1] + timedelta(days=1), periods=pred_hari)
     
-    # 5. Visualisasi yang lebih informatif
     fig = go.Figure()
-    
-    # Plot data historis
     fig.add_trace(go.Scatter(
         x=df.index[-100:], 
         y=df["Close"].values[-100:],
         name="Harga Historis",
         line=dict(color='blue')
     ))
-    
-    # Plot prediksi
     fig.add_trace(go.Scatter(
         x=pred_dates,
         y=pred_mean,
         name="Prediksi",
         line=dict(color='green', dash='dash')
     ))
-    
-    # Plot interval kepercayaan
     fig.add_trace(go.Scatter(
         x=pred_dates.tolist() + pred_dates.tolist()[::-1],
         y=conf_int.iloc[:, 0].tolist() + conf_int.iloc[:, 1].tolist()[::-1],
@@ -461,17 +572,15 @@ def arima_prediksi_harga(ticker, pred_hari=30):
         line=dict(color='rgba(255,255,255,0)'),
         name="Interval Kepercayaan 95%"
     ))
-    
     fig.update_layout(
         title=f"Prediksi Harga Saham {ticker} (ARIMA{best_order})",
         xaxis_title="Tanggal",
         yaxis_title="Harga",
         hovermode="x unified"
     )
-    
     st.plotly_chart(fig, use_container_width=True)
     
-    # 6. Tampilkan tabel prediksi
+    # 5. Tampilkan tabel prediksi
     pred_df = pd.DataFrame({
         "Tanggal": pred_dates,
         "Prediksi": pred_mean,
@@ -486,7 +595,7 @@ def arima_prediksi_harga(ticker, pred_hari=30):
         "Atas (95%)": "{:.2f}"
     }))
     
-    # 7. Analisis perubahan harga
+    # 6. Analisis perubahan harga
     perubahan = pred_mean.iloc[-1] - df["Close"].iloc[-1]
     perubahan_persen = (perubahan / df["Close"].iloc[-1]) * 100
     
@@ -554,7 +663,6 @@ def show_price_prediction(ticker):
         periode_arima = st.slider("Periode Prediksi ARIMA (hari):", 1, 30, 7)
         if st.button("Jalankan Prediksi ARIMA"):
             arima_prediksi_harga(ticker, pred_hari=periode_arima)
-# ===== MAIN APP =====
 # ===== MAIN APP =====
 def main():
     st.title("📊 Analisis Saham Lengkap + AI Prediksi")
